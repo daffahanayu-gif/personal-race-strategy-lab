@@ -2,6 +2,8 @@ import gpxpy
 import pandas as pd
 import numpy as np
 import requests 
+import time
+from scipy.interpolate import griddata
 from datetime import datetime, timedelta
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -97,8 +99,8 @@ def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, ws_input_s
 
     return df, ws_list, ws_mode
 
-def fetch_terrain_surface(df, grid_size=45):
-    """Mengambil grid elevasi DEM resolusi tinggi di sekitar lintasan untuk membentuk maket gunung 3D padat."""
+def fetch_terrain_surface(df, grid_size=28):
+    """Mengambil DEM dari Open-Meteo (anti rate-limit) dengan fallback interpolasi GPX lokal agar selalu muncul."""
     pad_lat = (df['lat'].max() - df['lat'].min()) * 0.22 + 0.003
     pad_lon = (df['lon'].max() - df['lon'].min()) * 0.22 + 0.003
 
@@ -119,7 +121,14 @@ def fetch_terrain_surface(df, grid_size=45):
             resp = requests.get(url, timeout=10)
             resp.raise_for_status()
             elevs.extend(resp.json()["elevation"])
-        z_grid = np.array(elevs).reshape(lat_grid.shape)
+            time.sleep(0.15)  # Jeda aman agar tidak kena rate-limit Open-Meteo
+        z_grid = np.array(elevs, dtype=float).reshape(lat_grid.shape)
         return lon_grid, lat_grid, z_grid
     except Exception:
-        return None, None, None
+        # Fallback lokal: bentuk permukaan gunung dari interpolasi titik GPX jika API sedang sibuk
+        pts = df[['lon', 'lat']].values
+        vals = df['ele_smooth'].values
+        z_linear = griddata(pts, vals, (lon_grid, lat_grid), method='linear')
+        z_nearest = griddata(pts, vals, (lon_grid, lat_grid), method='nearest')
+        z_grid = np.where(np.isnan(z_linear), z_nearest - 45, z_linear)
+        return lon_grid, lat_grid, z_grid

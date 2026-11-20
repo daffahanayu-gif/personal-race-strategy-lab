@@ -72,10 +72,10 @@ else:
         st.caption("Putar (drag) atau zoom model maket 3D untuk melihat punggungan bukit, lembah, dan elevasi lintasan secara utuh.")
 
         @st.cache_data(show_spinner="Membentuk maket topografi gunung 3D...")
-        def get_cached_terrain(lat_min, lat_max, lon_min, lon_max):
-            return fetch_terrain_surface(df, grid_size=45)
+        def get_cached_terrain_v2(lat_min, lat_max, lon_min, lon_max):
+            return fetch_terrain_surface(df, grid_size=28)
 
-        lon_grid, lat_grid, z_grid = get_cached_terrain(
+        lon_grid, lat_grid, z_grid = get_cached_terrain_v2(
             round(df['lat'].min(), 4), round(df['lat'].max(), 4),
             round(df['lon'].min(), 4), round(df['lon'].max(), 4)
         )
