@@ -97,10 +97,10 @@ def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, ws_input_s
 
     return df, ws_list, ws_mode
 
-def fetch_terrain_surface(df, grid_size=24):
-    """Mengambil grid elevasi DEM di sekitar lintasan untuk membentuk permukaan gunung 3D."""
-    pad_lat = (df['lat'].max() - df['lat'].min()) * 0.25 + 0.004
-    pad_lon = (df['lon'].max() - df['lon'].min()) * 0.25 + 0.004
+def fetch_terrain_surface(df, grid_size=45):
+    """Mengambil grid elevasi DEM resolusi tinggi di sekitar lintasan untuk membentuk maket gunung 3D padat."""
+    pad_lat = (df['lat'].max() - df['lat'].min()) * 0.22 + 0.003
+    pad_lon = (df['lon'].max() - df['lon'].min()) * 0.22 + 0.003
 
     lats = np.linspace(df['lat'].min() - pad_lat, df['lat'].max() + pad_lat, grid_size)
     lons = np.linspace(df['lon'].min() - pad_lon, df['lon'].max() + pad_lon, grid_size)
@@ -110,14 +110,13 @@ def fetch_terrain_surface(df, grid_size=24):
     flat_lons = lon_grid.ravel()
 
     try:
-        # Open-Meteo Elevation API (Gratis, cepat, mendukung batch hingga 100 titik per call)
         elevs = []
         chunk_size = 100
         for i in range(0, len(flat_lats), chunk_size):
             lat_str = ",".join([f"{x:.5f}" for x in flat_lats[i:i+chunk_size]])
             lon_str = ",".join([f"{x:.5f}" for x in flat_lons[i:i+chunk_size]])
             url = f"https://api.open-meteo.com/v1/elevation?latitude={lat_str}&longitude={lon_str}"
-            resp = requests.get(url, timeout=8)
+            resp = requests.get(url, timeout=10)
             resp.raise_for_status()
             elevs.extend(resp.json()["elevation"])
         z_grid = np.array(elevs).reshape(lat_grid.shape)

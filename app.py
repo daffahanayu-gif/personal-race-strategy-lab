@@ -66,14 +66,14 @@ else:
         '5. Turunan Curam / Quad-Killer (<-15%)': '#5352ed'
     }
 
-    # --- TAB 1: MODEL MEDAN 3D (DENGAN PERMUKAAN BUKIT / DEM) ---
+    # --- TAB 1: MODEL MEDAN 3D (MAKET GUNUNG SOLID TANPA LATAR HITAM) ---
     with tab_3d:
-        st.subheader("Visualisasi Kontur Gunung & Lintasan 3D (Terrain Mesh)")
-        st.caption("Permukaan topografi 3D membantu membayangkan posisi punggungan, lembah, dan puncak di sekitar jalur lari.")
+        st.subheader("Visualisasi Maket Gunung & Lintasan 3D (Realistic Terrain)")
+        st.caption("Putar (drag) atau zoom model maket 3D untuk melihat punggungan bukit, lembah, dan elevasi lintasan secara utuh.")
 
-        @st.cache_data(show_spinner="Memuat kontur topografi gunung 3D...")
+        @st.cache_data(show_spinner="Membentuk maket topografi gunung 3D...")
         def get_cached_terrain(lat_min, lat_max, lon_min, lon_max):
-            return fetch_terrain_surface(df, grid_size=24)
+            return fetch_terrain_surface(df, grid_size=45)
 
         lon_grid, lat_grid, z_grid = get_cached_terrain(
             round(df['lat'].min(), 4), round(df['lat'].max(), 4),
@@ -90,28 +90,44 @@ else:
         df['hover_medan'] = df['terrain_zone'].map(hover_map)
         fig3d = go.Figure()
 
-        # 1. Gambar Permukaan Bukit / Gunung 3D (DEM Surface)
+        # 1. Permukaan Tanah Padat (Solid) dengan Efek Bayangan Tebing (Hillshade Lighting)
         if z_grid is not None:
+            # Palet warna alami mirip maket topografi realistis (lembah hijau zaitun -> lereng tanah -> puncak batu terang)
+            realistic_earth_scale = [
+                [0.0, '#4a6b48'],
+                [0.25, '#7c8c58'],
+                [0.50, '#b5a273'],
+                [0.75, '#967c54'],
+                [1.0, '#d6cbb5']
+            ]
             fig3d.add_trace(go.Surface(
                 x=lon_grid,
                 y=lat_grid,
                 z=z_grid,
-                colorscale='Earth',      # Gradasi warna lembah hijau -> bukit cokelat -> puncak terang
-                opacity=0.78,
+                colorscale=realistic_earth_scale,
+                opacity=1.0,             # Padat 100% tidak tembus pandang
                 showscale=False,
+                lighting=dict(
+                    ambient=0.45,        # Cahaya dasar
+                    diffuse=0.85,        # Bayangan lereng & tebing agar tekstur gunung muncul tajam
+                    specular=0.15,
+                    roughness=0.85,
+                    fresnel=0.1
+                ),
+                lightposition=dict(x=100, y=200, z=500),
                 contours=dict(
-                    z=dict(show=True, usecolormap=True, highlightcolor="white", project_z=False)
+                    z=dict(show=True, color='rgba(60, 45, 30, 0.28)', width=1)
                 ),
                 hoverinfo='skip',
                 name='Kontur Bukit 3D'
             ))
 
-        # 2. Gambar Jalur Rute Menempel di Atas Bukit (+8m offset agar tidak tenggelam)
+        # 2. Jalur Rute Mengambang Tipis (+18m) di Atas Permukaan Padat Agar Tidak Tenggelam
         for zone, col in color_dict.items():
             sub = df[df['terrain_zone'] == zone]
             fig3d.add_trace(go.Scatter3d(
-                x=sub['lon'], y=sub['lat'], z=sub['ele_smooth'] + 8,
-                mode='markers', marker=dict(size=4.5, color=col), name=zone[3:],
+                x=sub['lon'], y=sub['lat'], z=sub['ele_smooth'] + 18,
+                mode='markers', marker=dict(size=4.8, color=col), name=zone[3:],
                 hovertemplate=(
                     "<b>KM:</b> %{customdata[0]:.2f}<br>"
                     "<b>Medan:</b> %{customdata[2]}<br>"
@@ -124,41 +140,45 @@ else:
         # 3. Pin Penanda Lokasi (Start, Finish, Puncak, WS)
         spot_lons = [df['lon'].iloc[0], df['lon'].iloc[-1]]
         spot_lats = [df['lat'].iloc[0], df['lat'].iloc[-1]]
-        spot_eles = [df['ele_smooth'].iloc[0] + 45, df['ele_smooth'].iloc[-1] + 45]
+        spot_eles = [df['ele_smooth'].iloc[0] + 65, df['ele_smooth'].iloc[-1] + 65]
         spot_texts = [f"🚩 START ({jam_start})", f"🏁 FINISH ({est_finish})"]
-        spot_cols = ['#00ff00', '#ff4757']
+        spot_cols = ['#16a34a', '#dc2626']
 
         peak_idx = df['ele_smooth'].idxmax()
         spot_lons.append(df.loc[peak_idx, 'lon'])
         spot_lats.append(df.loc[peak_idx, 'lat'])
-        spot_eles.append(df.loc[peak_idx, 'ele_smooth'] + 55)
+        spot_eles.append(df.loc[peak_idx, 'ele_smooth'] + 75)
         spot_texts.append(f"⛰️ PUNCAK ({df.loc[peak_idx, 'ele_smooth']:.0f}m | KM {df.loc[peak_idx, 'distance_km']:.1f})")
-        spot_cols.append('#ffeaa7')
+        spot_cols.append('#d97706')
 
         for idx, km_ws in enumerate([km for km in ws_list if 0 < km < total_km], start=1):
             r_idx = (df['distance_km'] - km_ws).abs().idxmin()
             spot_lons.append(df.loc[r_idx, 'lon'])
             spot_lats.append(df.loc[r_idx, 'lat'])
-            spot_eles.append(df.loc[r_idx, 'ele_smooth'] + 40)
+            spot_eles.append(df.loc[r_idx, 'ele_smooth'] + 60)
             spot_texts.append(f"💧 WS {idx} (KM {df.loc[r_idx, 'distance_km']:.1f} | {df.loc[r_idx, 'est_time']})")
-            spot_cols.append('#00cec9')
+            spot_cols.append('#0284c7')
 
         fig3d.add_trace(go.Scatter3d(
             x=spot_lons, y=spot_lats, z=spot_eles,
             mode='markers+text', marker=dict(size=7, color=spot_cols, symbol='diamond'),
-            text=spot_texts, textposition='top center', textfont=dict(size=11, color='white'),
+            text=spot_texts, textposition='top center',
+            textfont=dict(size=11, color='#1e293b'),
             name='📍 Penanda Lokasi'
         ))
 
         fig3d.update_layout(
-            template='plotly_dark',
-            height=650,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=660,
             margin=dict(l=0, r=0, b=0, t=20),
             scene=dict(
-                xaxis_title='Longitude',
-                yaxis_title='Latitude',
-                zaxis_title='Elevasi (mdpl)',
-                aspectratio=dict(x=1.2, y=1.2, z=0.45)
+                bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(title='Longitude', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
+                yaxis=dict(title='Latitude', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
+                zaxis=dict(title='Elevasi (mdpl)', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
+                aspectratio=dict(x=1.25, y=1.25, z=0.5),
+                camera=dict(eye=dict(x=1.45, y=-1.45, z=1.15))
             ),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
         )
