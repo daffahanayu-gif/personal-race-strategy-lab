@@ -31,7 +31,6 @@ def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit):
                 jam_tiba_str = r['est_time']
                 istirahat_str = "Selesai" if is_finish else "0 mnt (Langsung lanjut)"
             else:
-                # Hitung jam tiba sebelum ditambah durasi berhenti
                 dt_keluar = datetime.strptime(r['est_time'], "%H:%M")
                 dt_masuk = dt_keluar - timedelta(minutes=int(waktu_berhenti_ws_menit))
                 jam_tiba_str = f"{dt_masuk.strftime('%H:%M')} (Lanjut {dt_keluar.strftime('%H:%M')})"
@@ -60,3 +59,33 @@ def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit):
             'Rekomendasi Asupan Energi': asupan_str
         })
     return pd.DataFrame(ws_rows), total_air_all, total_gel_all
+
+def generate_per_km_strategy(df):
+    df_calc = df.copy()
+    total_km = float(df_calc['distance_km'].max())
+    df_calc['km_ke'] = np.floor(df_calc['distance_km']).astype(int) + 1
+    df_calc.loc[df_calc['distance_km'] == total_km, 'km_ke'] = int(np.ceil(total_km))
+    
+    km_splits = []
+    for km_num, group in df_calc.groupby('km_ke'):
+        dist_s = group['dist_step_m'].sum() / 1000.0
+        if dist_s < 0.05: continue
+        gain_s, loss_s = group['ele_gain'].sum(), group['ele_loss'].sum()
+        pace_dec = (group['step_seconds'].sum() / 60.0) / dist_s
+        p_m, p_s = int(pace_dec), int((pace_dec - int(pace_dec)) * 60)
+        status = (
+            "🔴 Tanjakan Berat (Power Hike)" if gain_s > 80 else
+            ("🟠 Menanjak (Jaga Ritme)" if gain_s > 35 else
+            ("🔵 Turunan Tajam (Jaga Lutut)" if loss_s > 80 else
+            "🟢 Datar / Mengalir (Nabung Waktu)"))
+        )
+        km_splits.append({
+            'KM': f"KM {km_num}",
+            'Elevasi Akhir': f"{group['ele_smooth'].iloc[-1]:.0f} mdpl",
+            'Naik': f"+{gain_s:.0f} m",
+            'Turun': f"-{loss_s:.0f} m",
+            'Target Pace': f"{p_m}:{p_s:02d} /km",
+            'Est. Jam Tiba': group['est_time'].iloc[-1],
+            'Instruksi Medan': status
+        })
+    return pd.DataFrame(km_splits)
