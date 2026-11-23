@@ -19,7 +19,6 @@ def _evaluate_flexible_cop(cop_input_str, sec_tiba, jam_tiba_hhmm, jam_start_str
     try:
         t_start = datetime.strptime(jam_start_str.strip(), "%H:%M")
         if ":" in raw:
-            # Input berupa Jam Dinding (misal: 16:00)
             t_cut = datetime.strptime(raw, "%H:%M")
             if t_cut < t_start:
                 t_cut += timedelta(days=1)
@@ -27,7 +26,6 @@ def _evaluate_flexible_cop(cop_input_str, sec_tiba, jam_tiba_hhmm, jam_start_str
             limit_hours = limit_secs / 3600.0
             jam_cut_str = t_cut.strftime("%H:%M")
         else:
-            # Input berupa Durasi Jam dari Start (misal: 5 atau 5.5)
             limit_hours = float(raw.replace(",", "."))
             limit_secs = limit_hours * 3600.0
             t_cut = t_start + timedelta(seconds=limit_secs)
@@ -61,13 +59,35 @@ def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit, jam_start_str, c
         cum_loss = int(round(sub_from_start['ele_loss'].sum()))
 
         if idx == 0:
+            # Hitung rentang waktu & jarak dari Start menuju COP 1 (atau Finish jika 0 COP)
+            next_km = checkpoints[1]
+            n_idx = (df['distance_km'] - next_km).abs().idxmin()
+            n_row = df.loc[n_idx]
+            has_cop = len(checkpoints) > 2
+
+            if has_cop:
+                nama_cop1 = cop_config.get(1, {}).get("nama", "").strip()
+                tujuan_label = f"COP 1 ({nama_cop1})" if nama_cop1 else "COP 1"
+                sec_ke_next = max(0.0, float(n_row['cum_seconds']) - (waktu_berhenti_ws_menit * 60))
+                dt_keluar_1 = datetime.strptime(n_row['est_time'], "%H:%M")
+                jam_tiba_1 = (dt_keluar_1 - timedelta(minutes=int(waktu_berhenti_ws_menit))).strftime("%H:%M")
+                cop1_limit_str, _ = _evaluate_flexible_cop(cop_config.get(1, {}).get("cop", ""), sec_ke_next, jam_tiba_1, jam_start_str)
+            else:
+                tujuan_label = "Finish Line"
+                sec_ke_next = float(n_row['cum_seconds'])
+                jam_tiba_1 = n_row['est_time']
+                cop1_limit_str, _ = _evaluate_flexible_cop(cot_finish_str, sec_ke_next, jam_tiba_1, jam_start_str)
+
+            durasi_seg1_str = _format_duration_hm(sec_ke_next)
+            rentang_start_str = f"Start {r['est_time']} ➔ {jam_tiba_1} ({durasi_seg1_str} ke {tujuan_label})"
+
             ws_rows.append({
                 "Pos / COP": "🚩 Start Line",
-                "Batas COP": f"Start (Jam {r['est_time']})",
+                "Batas COP": f"Target {tujuan_label}: {cop1_limit_str}" if cop1_limit_str != "Tidak ada" else "0 detik",
                 "Est. Tiba & Status": f"0m (Jam {r['est_time']}) • 🟢 START",
-                "Jadwal Lanjut": f"Jam {r['est_time']}",
-                "Jarak & Elevasi": "0.0 km | 0m+ / 0m-",
-                "Logistik Segmen": "-"
+                "Jadwal Lanjut": rentang_start_str,
+                "Jarak & Elevasi": f"0.0 ➔ {round(float(n_row['distance_km']), 1)} km",
+                "Logistik Segmen": f"Siapkan bekal etape 1 ({durasi_seg1_str})"
             })
             continue
 
@@ -103,7 +123,6 @@ def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit, jam_start_str, c
 
         est_tiba_gabung = f"{_format_duration_hm(sec_tiba)} (Jam {jam_tiba_hhmm}) • {status_cp}"
 
-        # Kalkulasi cairan & nutrisi
         air_ml = int(round((seg_moving_mins / 60) * 550, -1))
         botol_500 = round(air_ml / 500.0, 1)
         kal_target = int(round((seg_moving_mins / 60) * 200, -1))
