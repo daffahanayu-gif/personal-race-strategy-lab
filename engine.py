@@ -44,8 +44,9 @@ def parse_gpx_data(gpx_bytes):
     df['terrain_zone'] = df['gradient_pct'].apply(classify_zone)
     return df
 
-def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, waktu_berhenti_ws_menit, mode_strategi, jumlah_cop):
+def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, waktu_berhenti_ws_menit, mode_strategi, jumlah_cop, custom_km_dict=None):
     df = df_raw.copy()
+    custom_km_dict = custom_km_dict or {}
     
     def effort_multiplier(g):
         if g > 15: return 2.4
@@ -66,14 +67,19 @@ def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, waktu_berh
     total_effort = df['effort_units'].sum()
     df['cum_effort'] = df['effort_units'].cumsum()
 
-    # Tentukan titik lokasi COP/WS otomatis sesuai jumlah_cop yang dipilih di sidebar
+    # Tentukan titik lokasi COP/WS: pakai KM kustom jika diisi, jika kosong hitung otomatis berdasarkan effort
     num_ws = int(jumlah_cop)
     ws_list = []
     ws_indices = []
     if num_ws > 0:
         for i in range(1, num_ws + 1):
-            target_eff = (total_effort / (num_ws + 1)) * i
-            idx_ws = (df['cum_effort'] - target_eff).abs().idxmin()
+            c_km = custom_km_dict.get(i)
+            if c_km is not None and 0.5 < float(c_km) < (total_km - 0.5):
+                idx_ws = (df['distance_km'] - float(c_km)).abs().idxmin()
+            else:
+                target_eff = (total_effort / (num_ws + 1)) * i
+                idx_ws = (df['cum_effort'] - target_eff).abs().idxmin()
+            
             km_found = round(float(df.loc[idx_ws, 'distance_km']), 1)
             if 0.5 < km_found < (total_km - 0.5) and km_found not in ws_list:
                 ws_list.append(km_found)

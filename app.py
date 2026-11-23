@@ -91,8 +91,17 @@ def load_cached_gpx(file_bytes):
     return parse_gpx_data(file_bytes)
 
 df_raw = load_cached_gpx(uploaded_file.getvalue())
+max_route_km = float(df_raw['distance_km'].max())
+
+# Ambil nilai KM kustom jika sudah diinput user di session_state
+custom_km_dict = {}
+for i in range(1, int(jumlah_cop) + 1):
+    val_km = st.session_state.get(f"km_custom_{i}", 0.0)
+    if val_km and 0.5 < float(val_km) < (max_route_km - 0.5):
+        custom_km_dict[i] = float(val_km)
+
 df, ws_list, ws_mode = run_strategy_simulation(
-    df_raw, jam_start, target_durasi, waktu_berhenti_ws, mode_strategi, jumlah_cop
+    df_raw, jam_start, target_durasi, waktu_berhenti_ws, mode_strategi, jumlah_cop, custom_km_dict
 )
 
 total_km = float(df['distance_km'].max())
@@ -141,30 +150,35 @@ with tab_2d:
 
 with tab_ws:
     st.subheader("Jadwal Pos, Batas Waktu COP & Rencana Logistik")
-    st.caption("Isi batas waktu COP menggunakan **durasi jam** (misal: `5` atau `5.5`) maupun **jam dinding** (misal: `11:30`), lalu pilih jenis logistik Anda.")
+    st.caption("Isi **KM Pos** (biarkan `0.0` untuk otomatis), **Nama Pos**, dan **Batas COP** (`5` untuk 5 jam, atau `11:30` untuk jam dinding).")
 
-    with st.expander("🛠️ Pengaturan Waktu COP & Jenis Logistik", expanded=True):
-        col_cop, col_log = st.columns([1.2, 1])
+    with st.expander("🛠️ Pengaturan Lokasi KM, Waktu COP & Jenis Logistik", expanded=True):
+        col_cop, col_log = st.columns([1.3, 1])
 
         with col_cop:
-            st.markdown("**1. Batas Waktu COP per Pos & Finish**")
+            st.markdown("**1. Detail Pos COP & Finish**")
             cop_config = {}
-            if ws_list:
-                for idx_ws, km_w in enumerate(ws_list, start=1):
-                    r1, r2, r3 = st.columns([1.3, 1, 0.8])
-                    nm = r1.text_input(
+            if int(jumlah_cop) > 0:
+                for idx_ws in range(1, int(jumlah_cop) + 1):
+                    km_aktif = ws_list[idx_ws - 1] if idx_ws <= len(ws_list) else 0.0
+                    r1, r2, r3, r4 = st.columns([0.85, 1.15, 1.05, 0.75])
+                    r1.number_input(
+                        f"KM COP {idx_ws}",
+                        min_value=0.0, max_value=max_route_km, step=0.5,
+                        key=f"km_custom_{idx_ws}",
+                        help="0 = otomatis, atau isi KM sesuai race guide (misal: 15.0)"
+                    )
+                    nm = r2.text_input(
                         f"Nama COP {idx_ws}",
-                        placeholder=f"COP {idx_ws} (KM {km_w})",
-                        key=f"nm_{idx_ws}",
-                        label_visibility="collapsed"
+                        placeholder=f"Nama Pos (KM {km_aktif})",
+                        key=f"nm_{idx_ws}"
                     )
-                    cp_time = r2.text_input(
-                        f"Waktu COP {idx_ws}",
-                        placeholder=f"COP {idx_ws}: 5 jam / 11:00",
-                        key=f"cop_t_{idx_ws}",
-                        label_visibility="collapsed"
+                    cp_time = r3.text_input(
+                        f"Batas COP {idx_ws}",
+                        placeholder="5 jam / 11:00",
+                        key=f"cop_t_{idx_ws}"
                     )
-                    dbag = r3.checkbox("Drop Bag", key=f"db_{idx_ws}")
+                    dbag = r4.checkbox("Drop Bag", key=f"db_{idx_ws}")
                     cop_config[idx_ws] = {"nama": nm, "cop": cp_time, "drop_bag": dbag}
             else:
                 st.caption("Jumlah COP diatur ke 0 (rute langsung Start ke Finish).")
