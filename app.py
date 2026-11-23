@@ -5,6 +5,23 @@ from terrain_3d import build_3d_terrain_figure
 from map_2d import build_2d_topo_map
 from logistics import generate_ws_logistics, generate_per_km_strategy
 
+def parse_duration_to_hours(durasi_str):
+    """Mengonversi string HH:MM:SS (atau HH:MM) menjadi nilai jam desimal dengan aman."""
+    try:
+        parts = [int(p.strip()) for p in durasi_str.split(":")]
+        if len(parts) == 3:
+            h, m, s = parts
+        elif len(parts) == 2:
+            h, m, s = parts[0], parts[1], 0
+        else:
+            return None
+        if h < 0 or not (0 <= m < 60) or not (0 <= s < 60):
+            return None
+        total_hours = h + (m / 60.0) + (s / 3600.0)
+        return total_hours if total_hours > 0 else None
+    except ValueError:
+        return None
+
 st.set_page_config(page_title="Personal Race Strategy Lab", page_icon="🏔️", layout="wide")
 
 st.markdown("""
@@ -25,7 +42,15 @@ with st.sidebar:
     uploaded_file = st.file_uploader("1. Unggah Berkas GPX (.gpx)", type=["gpx"], key="sidebar_uploader")
     st.divider()
     jam_start = st.text_input("2. Waktu Mulai / Start (HH:MM)", value="06:00")
-    target_durasi = st.number_input("3. Target Durasi (Jam)", min_value=0.5, max_value=48.0, value=4.15, step=0.25)
+    target_durasi_str = st.text_input(
+        "3. Target Durasi (HH:MM:SS)",
+        value="04:15:00",
+        help="Format Jam:Menit:Detik (contoh: 04:15:00 untuk 4 jam 15 menit)"
+    )
+    target_durasi = parse_duration_to_hours(target_durasi_str)
+    if target_durasi is None:
+        st.error("⚠️ Format durasi tidak valid. Gunakan format **HH:MM:SS** (contoh: `04:15:00`).")
+        st.stop()
     mode_strategi = st.selectbox(
         "4. Strategi Pacing",
         ["Normal (Stabil)", "Konservatif (Simpan Tenaga di Awal)", "Agresif (Cepat di Awal)"]
@@ -107,10 +132,9 @@ with tab_ws:
     df_ws, total_air, total_gel = generate_ws_logistics(df, ws_list, waktu_berhenti_ws)
     st.dataframe(df_ws, use_container_width=True, hide_index=True)
     st.success(
-        f"🎒 **Ringkasan Logistik ({target_durasi} Jam):** Siapkan total sekitar **{total_air} ml cairan** "
+        f"🎒 **Ringkasan Logistik (Target {target_durasi_str}):** Siapkan total sekitar **{total_air} ml cairan** "
         f"dan **{total_gel} porsi energi** (Energy Gel, pisang, atau kurma) yang didistribusikan sesuai tabel di atas."
     )
-
 with tab_km:
     st.subheader("Rincian Target Pace & Karakter Medan Per 1 Kilometer")
     df_km = generate_per_km_strategy(df)
