@@ -2,7 +2,7 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.interpolate import griddata
 
-def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
+def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict, zoom_level=1.0):
     total_km = float(df['distance_km'].max())
     
     grid_size = 45
@@ -46,7 +46,6 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
         name='Kontur Bukit 3D'
     ))
 
-    # Dinding Penutup Samping & Alas Bawah (Terrain Skirt / Balok Diorama)
     z_base = float(np.nanmin(z_grid)) - 55
     skirt_color = [[0, '#2b2d30'], [1, '#3f4246']]
     edges = [
@@ -73,13 +72,12 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
         opacity=1.0, showscale=False, hoverinfo='skip', showlegend=False
     ))
 
-    # Jalur Rute Berwarna
     hover_map = {
-        '1. Tanjakan Ekstrem (>15%)': '🔴 Tanjakan Ekstrem (Tembok)',
+        '1. Tanjakan Ekstrem (>15%)': '🔴 Tanjakan Ekstrem',
         '2. Tanjakan Sedang (5-15%)': '🟠 Tanjakan Sedang',
         '3. Datar / Nabung Waktu (-5% s/d 5%)': '🟢 Datar (Nabung Waktu)',
         '4. Turunan Landai (-15% s/d -5%)': '🩵 Turunan Landai',
-        '5. Turunan Curam / Quad-Killer (<-15%)': '🔵 Turunan Curam (Jaga Lutut)'
+        '5. Turunan Curam / Quad-Killer (<-15%)': '🔵 Turunan Curam'
     }
     hover_medan = df['terrain_zone'].map(hover_map)
 
@@ -87,64 +85,69 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
         mask = df['terrain_zone'] == zone
         sub = df[mask]
         fig3d.add_trace(go.Scatter3d(
-            x=sub['lon'], y=sub['lat'], z=sub['ele_smooth'] + 18,
-            mode='markers', marker=dict(size=6, color=col), name=zone[3:],
+            x=sub['lon'], y=sub['lat'], z=sub['ele_smooth'] + 20,
+            mode='markers', marker=dict(size=6.5, color=col), name=zone[3:],
             hovertemplate=(
                 "<b>KM %{customdata[0]:.2f}</b><br>"
-                "Medan: %{customdata[2]}<br>"
+                "%{customdata[2]}<br>"
                 "Elevasi: %{customdata[3]:.0f} mdpl<br>"
                 "Est. Jam: %{customdata[1]}<extra></extra>"
             ),
             customdata=np.stack((sub['distance_km'], sub['est_time'], hover_medan[mask], sub['ele_smooth']), axis=-1)
         ))
 
-    # Penanda Lokasi Strategis (Start, Finish, Puncak, WS) — Ukuran diperbesar agar mudah di-tap di HP
     spot_lons = [df['lon'].iloc[0], df['lon'].iloc[-1]]
     spot_lats = [df['lat'].iloc[0], df['lat'].iloc[-1]]
     spot_eles = [df['ele_smooth'].iloc[0] + 65, df['ele_smooth'].iloc[-1] + 65]
     spot_texts = [f"🚩 START ({jam_start})", f"🏁 FINISH ({est_finish})"]
-    spot_cols = ['#16a34a', '#dc2626']
+    spot_cols = ['#22c55e', '#ef4444']
 
     peak_idx = df['ele_smooth'].idxmax()
     spot_lons.append(df.loc[peak_idx, 'lon'])
     spot_lats.append(df.loc[peak_idx, 'lat'])
     spot_eles.append(df.loc[peak_idx, 'ele_smooth'] + 75)
-    spot_texts.append(f"⛰️ PUNCAK ({df.loc[peak_idx, 'ele_smooth']:.0f}m | KM {df.loc[peak_idx, 'distance_km']:.1f})")
-    spot_cols.append('#d97706')
+    spot_texts.append(f"⛰️ PUNCAK ({df.loc[peak_idx, 'ele_smooth']:.0f}m)")
+    spot_cols.append('#f59e0b')
 
     for idx, km_ws in enumerate([km for km in ws_list if 0 < km < total_km], start=1):
         r_idx = (df['distance_km'] - km_ws).abs().idxmin()
         spot_lons.append(df.loc[r_idx, 'lon'])
         spot_lats.append(df.loc[r_idx, 'lat'])
         spot_eles.append(df.loc[r_idx, 'ele_smooth'] + 60)
-        spot_texts.append(f"💧 WS {idx} (KM {df.loc[r_idx, 'distance_km']:.1f} | {df.loc[r_idx, 'est_time']})")
-        spot_cols.append('#0284c7')
+        spot_texts.append(f"💧 WS {idx} (KM {df.loc[r_idx, 'distance_km']:.1f})")
+        spot_cols.append('#38bdf8')
 
     fig3d.add_trace(go.Scatter3d(
         x=spot_lons, y=spot_lats, z=spot_eles,
-        mode='markers+text', marker=dict(size=9.5, color=spot_cols, symbol='diamond'),
-        text=spot_texts, textposition='top center', textfont=dict(size=11, color='#1e293b'),
+        mode='markers+text',
+        marker=dict(size=10, color=spot_cols, symbol='diamond'),
+        text=spot_texts,
+        textposition='top center',
+        textfont=dict(size=11, color='#f8fafc'),
         hovertemplate="<b>%{text}</b><extra></extra>",
         name='📍 Penanda Lokasi'
     ))
 
+    eye_dist = 1.45 / max(0.5, float(zoom_level))
+    eye_z = 1.15 / max(0.5, float(zoom_level))
+
     fig3d.update_layout(
-        uirevision='keep_camera_state',  # Mengunci posisi zoom & rotasi agar tidak reset!
-        dragmode='turntable',            # Geser 1 jari langsung memutar diorama secara natural
-        hoverdistance=35,                # Memperluas area tangkap sentuhan jari di layar HP
-        hoverlabel=dict(bgcolor="rgba(15, 23, 42, 0.92)", font_size=13, font_color="white"),
+        uirevision=f'cam_zoom_{zoom_level}',
+        dragmode='turntable',
+        hoverdistance=40,
+        hoverlabel=dict(bgcolor="rgba(15, 23, 42, 0.95)", font_size=13, font_color="#ffffff"),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        height=520,
-        margin=dict(l=0, r=0, b=0, t=20),
+        height=500,
+        margin=dict(l=0, r=0, b=0, t=10),
         scene=dict(
             bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(title='Longitude', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
-            yaxis=dict(title='Latitude', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
-            zaxis=dict(title='Elevasi (mdpl)', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
+            xaxis=dict(title='Lon', showbackground=False, gridcolor='rgba(148,163,184,0.25)', zeroline=False),
+            yaxis=dict(title='Lat', showbackground=False, gridcolor='rgba(148,163,184,0.25)', zeroline=False),
+            zaxis=dict(title='mdpl', showbackground=False, gridcolor='rgba(148,163,184,0.25)', zeroline=False),
             aspectratio=dict(x=1.25, y=1.25, z=0.5),
-            camera=dict(eye=dict(x=1.45, y=-1.45, z=1.15))
+            camera=dict(eye=dict(x=eye_dist, y=-eye_dist, z=eye_z))
         ),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0)
     )
     return fig3d
