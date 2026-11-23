@@ -30,7 +30,11 @@ with st.sidebar:
         "4. Strategi Pacing",
         ["Normal (Stabil)", "Konservatif (Simpan Tenaga di Awal)", "Agresif (Cepat di Awal)"]
     )
-    ws_input = st.text_input("5. Titik Pos / WS (KM)", value="", placeholder="Kosongkan untuk deteksi otomatis")
+    waktu_berhenti_ws = st.number_input(
+    "5. Estimasi Berhenti per WS (Menit)",
+    min_value=0, max_value=60, value=3, step=1,
+    help="Waktu pit-stop di setiap pos hidrasi (isi ulang botol, makan, peregangan). Otomatis memengaruhi target pace lari."
+)
 
 # --- TAMPILAN AWAL (EMPTY STATE PROFESIONAL) ---
 if uploaded_file is None:
@@ -56,7 +60,7 @@ def load_cached_gpx(file_bytes):
     return parse_gpx_data(file_bytes)
 
 df_raw = load_cached_gpx(uploaded_file.getvalue())
-df, ws_list, ws_mode = run_strategy_simulation(df_raw, jam_start, target_durasi, ws_input, mode_strategi)
+df, ws_list, ws_mode = run_strategy_simulation(df_raw, jam_start, target_durasi, waktu_berhenti_ws, mode_strategi)
 
 total_km = float(df['distance_km'].max())
 total_gain = float(df['ele_gain'].sum())
@@ -100,7 +104,7 @@ with tab_2d:
 with tab_ws:
     st.subheader("Jadwal Kedatangan & Perencanaan Logistik per Pos")
     st.caption("Estimasi konversi: 1 Energy Gel ≈ 100 kkal | 1 Pisang/Kurma ≈ 90–100 kkal | 1 Soft Flask = 500 ml.")
-    df_ws, total_air, total_gel = generate_ws_logistics(df, ws_list)
+    df_ws, total_air, total_gel = generate_ws_logistics(df, ws_list, waktu_berhenti_ws)
     st.dataframe(df_ws, use_container_width=True, hide_index=True)
     st.success(
         f"🎒 **Ringkasan Logistik ({target_durasi} Jam):** Siapkan total sekitar **{total_air} ml cairan** "

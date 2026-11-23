@@ -44,7 +44,7 @@ def parse_gpx_data(gpx_bytes):
     df['terrain_zone'] = df['gradient_pct'].apply(classify_zone)
     return df
 
-def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, ws_input_str, mode_strategi):
+def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, waktu_berhenti_ws_menit, mode_strategi):
     df = df_raw.copy()
     
     def effort_multiplier(g):
@@ -63,34 +63,44 @@ def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, ws_input_s
     elif "Agresif" in mode_strategi:
         df['effort_units'] *= np.where(progress < 0.5, 0.9, 1.1)
 
-    total_effort = df['effort_units'].sum()
-    total_seconds = target_durasi_jam * 3600
+    # 1. Tentukan jumlah dan lokasi WS otomatis berdasarkan panjang rute & proporsi beban
+    if total_km < 12: num_ws = 1
+    elif total_km < 22: num_ws = 2
+    elif total_km < 35: num_ws = 3
+    else: num_ws = max(3, int(total_km // 10))
 
-    df['step_seconds'] = (df['effort_units'] / total_effort) * total_seconds
-    df['cum_seconds'] = df['step_seconds'].cumsum()
+    total_effort = df['effort_units'].sum()
+    df['cum_effort'] = df['effort_units'].cumsum()
+
+    ws_list = []
+    ws_indices = []
+    for i in range(1, num_ws + 1):
+        target_eff = (total_effort / (num_ws + 1)) * i
+        idx_ws = (df['cum_effort'] - target_eff).abs().idxmin()
+        km_found = round(float(df.loc[idx_ws, 'distance_km']), 1)
+        if 1.0 < km_found < (total_km - 1.0) and km_found not in ws_list:
+            ws_list.append(km_found)
+            ws_indices.append(idx_ws)
+
+    # 2. Kurangi total target durasi dengan total waktu berhenti (pit stop) di semua WS
+    total_target_sec = target_durasi_jam * 3600
+    total_stop_sec = len(ws_list) * (waktu_berhenti_ws_menit * 60)
+    moving_seconds = max(total_target_sec * 0.5, total_target_sec - total_stop_sec)
+
+    # Waktu bergerak murni (moving time)
+    df['step_seconds'] = (df['effort_units'] / total_effort) * moving_seconds
+    
+    # Tambahkan jeda waktu berhenti tepat di titik indeks WS untuk kalkulasi jam tiba aktual
+    df['stop_seconds'] = 0.0
+    for idx_ws in ws_indices:
+        df.loc[idx_ws, 'stop_seconds'] = waktu_berhenti_ws_menit * 60
+
+    df['cum_seconds'] = (df['step_seconds'] + df['stop_seconds']).cumsum()
 
     start_dt = datetime.strptime(jam_start_str, "%H:%M")
     df['est_time'] = df['cum_seconds'].apply(lambda s: (start_dt + timedelta(seconds=float(s))).strftime("%H:%M"))
 
-    if ws_input_str.strip() == "" or ws_input_str.strip().upper() == "AUTO":
-        if total_km < 12: num_ws = 1
-        elif total_km < 22: num_ws = 2
-        elif total_km < 35: num_ws = 3
-        else: num_ws = max(3, int(total_km // 10))
-        
-        ws_list = []
-        for i in range(1, num_ws + 1):
-            target_sec = (total_seconds / (num_ws + 1)) * i
-            idx_ws = (df['cum_seconds'] - target_sec).abs().idxmin()
-            km_found = round(float(df.loc[idx_ws, 'distance_km']), 1)
-            if 1.0 < km_found < (total_km - 1.0):
-                ws_list.append(km_found)
-        ws_list = sorted(list(set(ws_list)))
-        ws_label_str = ", ".join([f"KM {x}" for x in ws_list])
-        ws_mode = f"WS Auto: {ws_label_str}"
-    else:
-        ws_list = [round(float(x.strip()), 1) for x in ws_input_str.split(",") if x.strip() != ""]
-        ws_label_str = ", ".join([f"KM {x}" for x in ws_list])
-        ws_mode = f"WS Manual: {ws_label_str}"
+    ws_label_str = ", ".join([f"KM {x}" for x in ws_list]) if ws_list else "Tanpa WS"
+    ws_mode = f"{len(ws_list)} Pos ({ws_label_str})"
 
     return df, ws_list, ws_mode
