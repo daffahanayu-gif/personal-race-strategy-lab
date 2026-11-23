@@ -5,7 +5,6 @@ from scipy.interpolate import griddata
 def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
     total_km = float(df['distance_km'].max())
     
-    # 1. Bentuk Grid Permukaan Gunung Padat Secara Instan (Bebas Timeout API)
     grid_size = 45
     pad_lat = (df['lat'].max() - df['lat'].min()) * 0.22 + 0.0025
     pad_lon = (df['lon'].max() - df['lon'].min()) * 0.22 + 0.0025
@@ -19,7 +18,6 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
     z_linear = griddata(pts, vals, (lon_grid, lat_grid), method='linear')
     z_nearest = griddata(pts, vals, (lon_grid, lat_grid), method='nearest')
     
-    # Buat lereng alami menurun ke tepi luar diorama
     dist_to_track = np.min(
         np.sqrt((lon_grid[..., None] - pts[:, 0])**2 + (lat_grid[..., None] - pts[:, 1])**2),
         axis=-1
@@ -29,7 +27,6 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
 
     fig3d = go.Figure()
 
-    # 2. Permukaan Atas Gunung Padat (Realistic Earth + Hillshade Lighting)
     realistic_earth_scale = [
         [0.0, '#4a6b48'],
         [0.25, '#7c8c58'],
@@ -49,7 +46,7 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
         name='Kontur Bukit 3D'
     ))
 
-    # 3. Dinding Penutup Samping & Alas Bawah (Terrain Skirt / Balok Diorama Padat)
+    # Dinding Penutup Samping & Alas Bawah (Terrain Skirt / Balok Diorama)
     z_base = float(np.nanmin(z_grid)) - 55
     skirt_color = [[0, '#2b2d30'], [1, '#3f4246']]
     edges = [
@@ -76,7 +73,7 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
         opacity=1.0, showscale=False, hoverinfo='skip', showlegend=False
     ))
 
-    # 4. Jalur Rute Berwarna di Atas Permukaan Tanah (+16m)
+    # Jalur Rute Berwarna
     hover_map = {
         '1. Tanjakan Ekstrem (>15%)': '🔴 Tanjakan Ekstrem (Tembok)',
         '2. Tanjakan Sedang (5-15%)': '🟠 Tanjakan Sedang',
@@ -90,28 +87,28 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
         mask = df['terrain_zone'] == zone
         sub = df[mask]
         fig3d.add_trace(go.Scatter3d(
-            x=sub['lon'], y=sub['lat'], z=sub['ele_smooth'] + 16,
-            mode='markers', marker=dict(size=4.5, color=col), name=zone[3:],
+            x=sub['lon'], y=sub['lat'], z=sub['ele_smooth'] + 18,
+            mode='markers', marker=dict(size=6, color=col), name=zone[3:],
             hovertemplate=(
-                "<b>KM:</b> %{customdata[0]:.2f}<br>"
-                "<b>Medan:</b> %{customdata[2]}<br>"
-                "<b>Elevasi:</b> %{customdata[3]:.0f} mdpl<br>"
-                "<b>Est. Jam:</b> %{customdata[1]}<extra></extra>"
+                "<b>KM %{customdata[0]:.2f}</b><br>"
+                "Medan: %{customdata[2]}<br>"
+                "Elevasi: %{customdata[3]:.0f} mdpl<br>"
+                "Est. Jam: %{customdata[1]}<extra></extra>"
             ),
             customdata=np.stack((sub['distance_km'], sub['est_time'], hover_medan[mask], sub['ele_smooth']), axis=-1)
         ))
 
-    # 5. Penanda Lokasi Strategis (Start, Finish, Puncak, WS)
+    # Penanda Lokasi Strategis (Start, Finish, Puncak, WS) — Ukuran diperbesar agar mudah di-tap di HP
     spot_lons = [df['lon'].iloc[0], df['lon'].iloc[-1]]
     spot_lats = [df['lat'].iloc[0], df['lat'].iloc[-1]]
-    spot_eles = [df['ele_smooth'].iloc[0] + 60, df['ele_smooth'].iloc[-1] + 60]
+    spot_eles = [df['ele_smooth'].iloc[0] + 65, df['ele_smooth'].iloc[-1] + 65]
     spot_texts = [f"🚩 START ({jam_start})", f"🏁 FINISH ({est_finish})"]
     spot_cols = ['#16a34a', '#dc2626']
 
     peak_idx = df['ele_smooth'].idxmax()
     spot_lons.append(df.loc[peak_idx, 'lon'])
     spot_lats.append(df.loc[peak_idx, 'lat'])
-    spot_eles.append(df.loc[peak_idx, 'ele_smooth'] + 70)
+    spot_eles.append(df.loc[peak_idx, 'ele_smooth'] + 75)
     spot_texts.append(f"⛰️ PUNCAK ({df.loc[peak_idx, 'ele_smooth']:.0f}m | KM {df.loc[peak_idx, 'distance_km']:.1f})")
     spot_cols.append('#d97706')
 
@@ -119,21 +116,26 @@ def build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict):
         r_idx = (df['distance_km'] - km_ws).abs().idxmin()
         spot_lons.append(df.loc[r_idx, 'lon'])
         spot_lats.append(df.loc[r_idx, 'lat'])
-        spot_eles.append(df.loc[r_idx, 'ele_smooth'] + 55)
+        spot_eles.append(df.loc[r_idx, 'ele_smooth'] + 60)
         spot_texts.append(f"💧 WS {idx} (KM {df.loc[r_idx, 'distance_km']:.1f} | {df.loc[r_idx, 'est_time']})")
         spot_cols.append('#0284c7')
 
     fig3d.add_trace(go.Scatter3d(
         x=spot_lons, y=spot_lats, z=spot_eles,
-        mode='markers+text', marker=dict(size=7, color=spot_cols, symbol='diamond'),
+        mode='markers+text', marker=dict(size=9.5, color=spot_cols, symbol='diamond'),
         text=spot_texts, textposition='top center', textfont=dict(size=11, color='#1e293b'),
+        hovertemplate="<b>%{text}</b><extra></extra>",
         name='📍 Penanda Lokasi'
     ))
 
     fig3d.update_layout(
+        uirevision='keep_camera_state',  # Mengunci posisi zoom & rotasi agar tidak reset!
+        dragmode='turntable',            # Geser 1 jari langsung memutar diorama secara natural
+        hoverdistance=35,                # Memperluas area tangkap sentuhan jari di layar HP
+        hoverlabel=dict(bgcolor="rgba(15, 23, 42, 0.92)", font_size=13, font_color="white"),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        height=540,
+        height=520,
         margin=dict(l=0, r=0, b=0, t=20),
         scene=dict(
             bgcolor='rgba(0,0,0,0)',
