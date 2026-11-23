@@ -90,9 +90,8 @@ else:
         df['hover_medan'] = df['terrain_zone'].map(hover_map)
         fig3d = go.Figure()
 
-        # 1. Permukaan Tanah Padat (Solid) dengan Efek Bayangan Tebing (Hillshade Lighting)
+        # 1. Permukaan Tanah Padat (Solid) + Dinding Diorama (Terrain Skirt) Agar Tidak Bolong
         if z_grid is not None:
-            # Palet warna alami mirip maket topografi realistis (lembah hijau zaitun -> lereng tanah -> puncak batu terang)
             realistic_earth_scale = [
                 [0.0, '#4a6b48'],
                 [0.25, '#7c8c58'],
@@ -100,16 +99,17 @@ else:
                 [0.75, '#967c54'],
                 [1.0, '#d6cbb5']
             ]
+            # Permukaan atas gunung
             fig3d.add_trace(go.Surface(
                 x=lon_grid,
                 y=lat_grid,
                 z=z_grid,
                 colorscale=realistic_earth_scale,
-                opacity=1.0,             # Padat 100% tidak tembus pandang
+                opacity=1.0,
                 showscale=False,
                 lighting=dict(
-                    ambient=0.45,        # Cahaya dasar
-                    diffuse=0.85,        # Bayangan lereng & tebing agar tekstur gunung muncul tajam
+                    ambient=0.45,
+                    diffuse=0.85,
                     specular=0.15,
                     roughness=0.85,
                     fresnel=0.1
@@ -122,68 +122,42 @@ else:
                 name='Kontur Bukit 3D'
             ))
 
-        # 2. Jalur Rute Mengambang Tipis (+18m) di Atas Permukaan Padat Agar Tidak Tenggelam
-        for zone, col in color_dict.items():
-            sub = df[df['terrain_zone'] == zone]
-            fig3d.add_trace(go.Scatter3d(
-                x=sub['lon'], y=sub['lat'], z=sub['ele_smooth'] + 18,
-                mode='markers', marker=dict(size=4.8, color=col), name=zone[3:],
-                hovertemplate=(
-                    "<b>KM:</b> %{customdata[0]:.2f}<br>"
-                    "<b>Medan:</b> %{customdata[2]}<br>"
-                    "<b>Elevasi:</b> %{customdata[3]:.0f} mdpl<br>"
-                    "<b>Est. Jam:</b> %{customdata[1]}<extra></extra>"
-                ),
-                customdata=np.stack((sub['distance_km'], sub['est_time'], sub['hover_medan'], sub['ele_smooth']), axis=-1)
+            # --- TAMBAHAN DINDING PENUTUP SAMPING (TERRAIN SKIRT / DIORAMA BLOCK) ---
+            z_base = float(np.nanmin(z_grid)) - 60  # Kedalaman alas bawah balok maket
+            skirt_color = [[0, '#2b2d30'], [1, '#3f4246']]  # Warna dinding potongan batu gelap seperti referensi
+
+            # 4 sisi tepi grid (Selatan, Utara, Barat, Timur)
+            edges = [
+                (lon_grid[0, :],  lat_grid[0, :],  z_grid[0, :]),   # Sisi Depan/Selatan
+                (lon_grid[-1, :], lat_grid[-1, :], z_grid[-1, :]),  # Sisi Belakang/Utara
+                (lon_grid[:, 0],  lat_grid[:, 0],  z_grid[:, 0]),   # Sisi Kiri/Barat
+                (lon_grid[:, -1], lat_grid[:, -1], z_grid[:, -1])   # Sisi Kanan/Timur
+            ]
+
+            for x_edge, y_edge, z_edge in edges:
+                fig3d.add_trace(go.Surface(
+                    x=np.vstack([x_edge, x_edge]),
+                    y=np.vstack([y_edge, y_edge]),
+                    z=np.vstack([z_edge, np.full_like(z_edge, z_base)]),
+                    colorscale=skirt_color,
+                    opacity=1.0,
+                    showscale=False,
+                    lighting=dict(ambient=0.7, diffuse=0.5),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
+
+            # Penutup Lantai Dasar Paling Bawah (Bottom Cap)
+            fig3d.add_trace(go.Surface(
+                x=np.array([[lon_grid[0, 0], lon_grid[0, -1]], [lon_grid[-1, 0], lon_grid[-1, -1]]]),
+                y=np.array([[lat_grid[0, 0], lat_grid[0, -1]], [lat_grid[-1, 0], lat_grid[-1, -1]]]),
+                z=np.full((2, 2), z_base),
+                colorscale=[[0, '#1f2022'], [1, '#1f2022']],
+                opacity=1.0,
+                showscale=False,
+                hoverinfo='skip',
+                showlegend=False
             ))
-
-        # 3. Pin Penanda Lokasi (Start, Finish, Puncak, WS)
-        spot_lons = [df['lon'].iloc[0], df['lon'].iloc[-1]]
-        spot_lats = [df['lat'].iloc[0], df['lat'].iloc[-1]]
-        spot_eles = [df['ele_smooth'].iloc[0] + 65, df['ele_smooth'].iloc[-1] + 65]
-        spot_texts = [f"🚩 START ({jam_start})", f"🏁 FINISH ({est_finish})"]
-        spot_cols = ['#16a34a', '#dc2626']
-
-        peak_idx = df['ele_smooth'].idxmax()
-        spot_lons.append(df.loc[peak_idx, 'lon'])
-        spot_lats.append(df.loc[peak_idx, 'lat'])
-        spot_eles.append(df.loc[peak_idx, 'ele_smooth'] + 75)
-        spot_texts.append(f"⛰️ PUNCAK ({df.loc[peak_idx, 'ele_smooth']:.0f}m | KM {df.loc[peak_idx, 'distance_km']:.1f})")
-        spot_cols.append('#d97706')
-
-        for idx, km_ws in enumerate([km for km in ws_list if 0 < km < total_km], start=1):
-            r_idx = (df['distance_km'] - km_ws).abs().idxmin()
-            spot_lons.append(df.loc[r_idx, 'lon'])
-            spot_lats.append(df.loc[r_idx, 'lat'])
-            spot_eles.append(df.loc[r_idx, 'ele_smooth'] + 60)
-            spot_texts.append(f"💧 WS {idx} (KM {df.loc[r_idx, 'distance_km']:.1f} | {df.loc[r_idx, 'est_time']})")
-            spot_cols.append('#0284c7')
-
-        fig3d.add_trace(go.Scatter3d(
-            x=spot_lons, y=spot_lats, z=spot_eles,
-            mode='markers+text', marker=dict(size=7, color=spot_cols, symbol='diamond'),
-            text=spot_texts, textposition='top center',
-            textfont=dict(size=11, color='#1e293b'),
-            name='📍 Penanda Lokasi'
-        ))
-
-        fig3d.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            height=660,
-            margin=dict(l=0, r=0, b=0, t=20),
-            scene=dict(
-                bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(title='Longitude', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
-                yaxis=dict(title='Latitude', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
-                zaxis=dict(title='Elevasi (mdpl)', showbackground=False, gridcolor='rgba(148,163,184,0.35)', zeroline=False),
-                aspectratio=dict(x=1.25, y=1.25, z=0.5),
-                camera=dict(eye=dict(x=1.45, y=-1.45, z=1.15))
-            ),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
-        )
-        st.plotly_chart(fig3d, use_container_width=True)
-
     # --- TAB 2: PETA TOPOGRAFI 2D (FULL WIDTH LEGA) ---
     with tab_2d:
         st.subheader("Peta Topografi 2D & Titik Pos")
