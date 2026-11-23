@@ -124,15 +124,14 @@ tab_3d, tab_2d, tab_ws, tab_km = st.tabs([
 
 with tab_3d:
     st.subheader("Visualisasi Maket Gunung & Lintasan 3D")
-    st.caption("📱 **Kontrol Layar Sentuh:** Geser **1 jari** untuk memutar, cubit **2 jari** untuk zoom, geser **2 jari** untuk menggeser posisi, dan **ketuk titik** untuk melihat detail KM & elevasi.")
-    fig3d = build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict)
+    st.caption("📱 **Kontrol HP:** Geser **1 jari** untuk memutar maket, **ketuk titik** untuk detail elevasi, dan gunakan **penggeser Zoom** di bawah untuk memperbesar kontur tanpa memperbesar layar browser.")
+    
+    zoom_3d = st.slider("🔍 Tingkat Zoom Maket 3D", min_value=0.7, max_value=2.5, value=1.0, step=0.1)
+    fig3d = build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict, zoom_level=zoom_3d)
     st.plotly_chart(
         fig3d,
         use_container_width=True,
-        config={
-            "scrollZoom": True,
-            "displayModeBar": False  # Sembunyikan bar tombol kecil yang membingungkan di layar HP
-        }
+        config={"scrollZoom": True, "displayModeBar": False}
     )
 
 with tab_2d:
