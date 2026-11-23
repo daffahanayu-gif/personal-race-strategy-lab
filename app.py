@@ -124,12 +124,15 @@ tab_3d, tab_2d, tab_ws, tab_km = st.tabs([
 
 with tab_3d:
     st.subheader("Visualisasi Maket Gunung & Lintasan 3D")
-    st.caption("Geser 1 jari untuk memutar diorama, cubit 2 jari untuk zoom, dan ketuk titik lintasan untuk melihat detail elevasi.")
+    st.caption("📱 **Kontrol Layar Sentuh:** Geser **1 jari** untuk memutar, cubit **2 jari** untuk zoom, geser **2 jari** untuk menggeser posisi, dan **ketuk titik** untuk melihat detail KM & elevasi.")
     fig3d = build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict)
     st.plotly_chart(
         fig3d,
         use_container_width=True,
-        config={"scrollZoom": True, "displayModeBar": True, "modeBarButtonsToRemove": ["toImage", "sendDataToCloud"]}
+        config={
+            "scrollZoom": True,
+            "displayModeBar": False  # Sembunyikan bar tombol kecil yang membingungkan di layar HP
+        }
     )
 
 with tab_2d:
