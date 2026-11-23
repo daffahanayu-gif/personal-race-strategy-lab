@@ -196,7 +196,16 @@ with tab_ws:
         df, ws_list, waktu_berhenti_ws, jam_start, cop_config, cot_finish, selected_items_dict
     )
 
-    st.dataframe(df_ws, use_container_width=True, hide_index=True)
+    st.dataframe(
+        df_ws,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Pos / COP": st.column_config.TextColumn("Pos / COP", pinned=True),
+            "Batas COP": st.column_config.TextColumn("Batas COP"),
+            "Est. Tiba & Status": st.column_config.TextColumn("Est. Tiba & Status"),
+        }
+    )
     st.success(
         f"🎒 **Ringkasan Logistik (Target {target_durasi_str}):** Total kebutuhan cairan sekitar **{total_air} ml** "
         f"dan total kebutuhan energi sekitar **{total_kal} kkal** yang didistribusikan sesuai segmen pos di atas."

@@ -5,33 +5,36 @@ from datetime import datetime, timedelta
 def _format_duration_hm(total_seconds):
     mins = int(round(total_seconds / 60.0))
     h, m = divmod(mins, 60)
-    return f"{h} jam {m:02d} mnt" if h > 0 else f"{m} mnt"
+    return f"{h}j {m:02d}m" if h > 0 else f"{m}m"
 
 def _evaluate_flexible_cop(cop_input_str, sec_tiba, jam_tiba_hhmm, jam_start_str):
     """
-    Mendukung dua format batas COP:
-    1) Angka durasi jam dari Start (misal: '5' atau '5.5' -> 5 jam / 5.5 jam)
-    2) Format jam dinding HH:MM (misal: '11:30')
+    Menyamakan tampilan Batas COP agar selalu memuat Durasi + Jam Dinding,
+    sehingga mudah dibandingkan langsung dengan Estimasi Tiba pelari.
     """
     if not cop_input_str or str(cop_input_str).strip() == "":
-        return "-", "-"
+        return "Tidak ada", "⚪ Tanpa Batas"
 
     raw = str(cop_input_str).strip().lower().replace("jam", "").strip()
     try:
+        t_start = datetime.strptime(jam_start_str.strip(), "%H:%M")
         if ":" in raw:
-            # Mode Jam Dinding (HH:MM)
-            t_start = datetime.strptime(jam_start_str.strip(), "%H:%M")
-            t_tiba = datetime.strptime(jam_tiba_hhmm.strip(), "%H:%M")
+            # Input berupa Jam Dinding (misal: 16:00)
             t_cut = datetime.strptime(raw, "%H:%M")
-            if t_tiba < t_start: t_tiba += timedelta(days=1)
-            if t_cut < t_start: t_cut += timedelta(days=1)
-            diff_mins = int((t_cut - t_tiba).total_seconds() // 60)
-            label_cop = f"Jam {raw}"
+            if t_cut < t_start:
+                t_cut += timedelta(days=1)
+            limit_secs = (t_cut - t_start).total_seconds()
+            limit_hours = limit_secs / 3600.0
+            jam_cut_str = t_cut.strftime("%H:%M")
         else:
-            # Mode Durasi Jam dari Start (misal 5, 8.5, 16)
+            # Input berupa Durasi Jam dari Start (misal: 5 atau 5.5)
             limit_hours = float(raw.replace(",", "."))
-            diff_mins = int(round((limit_hours * 60) - (sec_tiba / 60.0)))
-            label_cop = f"{limit_hours:g} jam"
+            limit_secs = limit_hours * 3600.0
+            t_cut = t_start + timedelta(seconds=limit_secs)
+            jam_cut_str = t_cut.strftime("%H:%M")
+
+        diff_mins = int(round((limit_secs - sec_tiba) / 60.0))
+        label_cop = f"{limit_hours:g} jam (Jam {jam_cut_str})"
 
         if diff_mins >= 0:
             status = f"🟢 AMAN (Sisa {diff_mins} mnt)"
@@ -39,7 +42,7 @@ def _evaluate_flexible_cop(cop_input_str, sec_tiba, jam_tiba_hhmm, jam_start_str
             status = f"🔴 LEWAT ({abs(diff_mins)} mnt)"
         return label_cop, status
     except ValueError:
-        return "⚠️ Format salah", "⚠️ Gunakan angka jam (5) atau HH:MM"
+        return "⚠️ Format salah", "⚠️ Pakai angka (5) / HH:MM"
 
 def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit, jam_start_str, cop_config, cot_finish_str, selected_items):
     total_km = float(df['distance_km'].max())
@@ -60,13 +63,11 @@ def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit, jam_start_str, c
         if idx == 0:
             ws_rows.append({
                 "Pos / COP": "🚩 Start Line",
-                "KM": f"{cum_km} km",
-                "Elevasi (+/-)": "0m+ / 0m-",
-                "Batas COP": "0 detik",
-                "Est. Tempuh & Jam": f"0 mnt (Jam {r['est_time']})",
-                "Status COP": "🟢 START",
-                "Kebutuhan Air": "-",
-                "Rencana Logistik": "-"
+                "Batas COP": f"Start (Jam {r['est_time']})",
+                "Est. Tiba & Status": f"0m (Jam {r['est_time']}) • 🟢 START",
+                "Jadwal Lanjut": f"Jam {r['est_time']}",
+                "Jarak & Elevasi": "0.0 km | 0m+ / 0m-",
+                "Logistik Segmen": "-"
             })
             continue
 
@@ -79,7 +80,7 @@ def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit, jam_start_str, c
             pos_label = "🏁 Finish Line"
             sec_tiba = float(r['cum_seconds'])
             jam_tiba_hhmm = r['est_time']
-            jam_display = f"{_format_duration_hm(sec_tiba)} (Jam {jam_tiba_hhmm})"
+            jadwal_lanjut = "Selesai"
             cop_label, status_cp = _evaluate_flexible_cop(cot_finish_str, sec_tiba, jam_tiba_hhmm, jam_start_str)
         else:
             cfg = cop_config.get(idx, {})
@@ -90,41 +91,40 @@ def generate_ws_logistics(df, ws_list, waktu_berhenti_ws_menit, jam_start_str, c
             if waktu_berhenti_ws_menit == 0:
                 sec_tiba = float(r['cum_seconds'])
                 jam_tiba_hhmm = r['est_time']
-                jam_display = f"{_format_duration_hm(sec_tiba)} (Jam {jam_tiba_hhmm})"
+                jadwal_lanjut = f"Jam {jam_tiba_hhmm} (0 mnt)"
             else:
                 dt_keluar = datetime.strptime(r['est_time'], "%H:%M")
                 dt_masuk = dt_keluar - timedelta(minutes=int(waktu_berhenti_ws_menit))
                 jam_tiba_hhmm = dt_masuk.strftime("%H:%M")
                 sec_tiba = max(0.0, float(r['cum_seconds']) - (waktu_berhenti_ws_menit * 60))
-                jam_display = f"{_format_duration_hm(sec_tiba)} ({jam_tiba_hhmm} ➔ {dt_keluar.strftime('%H:%M')})"
+                jadwal_lanjut = f"Jam {dt_keluar.strftime('%H:%M')} (Istirahat {waktu_berhenti_ws_menit}m)"
 
             cop_label, status_cp = _evaluate_flexible_cop(cfg.get("cop", ""), sec_tiba, jam_tiba_hhmm, jam_start_str)
 
-        # Kalkulasi kebutuhan cairan & nutrisi segmen ini
+        est_tiba_gabung = f"{_format_duration_hm(sec_tiba)} (Jam {jam_tiba_hhmm}) • {status_cp}"
+
+        # Kalkulasi cairan & nutrisi
         air_ml = int(round((seg_moving_mins / 60) * 550, -1))
         botol_500 = round(air_ml / 500.0, 1)
         kal_target = int(round((seg_moving_mins / 60) * 200, -1))
         total_air_all += air_ml
         total_kal_all += kal_target
-        air_str = f"{air_ml} ml (~{botol_500} botol)"
 
         if selected_items:
             kal_per_jenis = kal_target / len(selected_items)
             rekom_list = [f"{max(1, round(kal_per_jenis / kcal))}x {name}" for name, kcal in selected_items.items()]
-            asupan_str = f"⚡ {', '.join(rekom_list)} (~{kal_target} kkal)"
+            asupan_str = f"{', '.join(rekom_list)} (~{kal_target} kkal)"
         else:
             jml_gel = max(1, round(kal_target / 100))
-            asupan_str = f"⚡ {jml_gel}x Energy Gel ({kal_target} kkal)"
+            asupan_str = f"{jml_gel}x Energy Gel (~{kal_target} kkal)"
 
         ws_rows.append({
             "Pos / COP": pos_label,
-            "KM": f"{cum_km} km",
-            "Elevasi (+/-)": f"{cum_gain}m+ / {cum_loss}m-",
             "Batas COP": cop_label,
-            "Est. Tempuh & Jam": jam_display,
-            "Status COP": status_cp,
-            "Kebutuhan Air": air_str,
-            "Rencana Logistik": asupan_str
+            "Est. Tiba & Status": est_tiba_gabung,
+            "Jadwal Lanjut": jadwal_lanjut,
+            "Jarak & Elevasi": f"{cum_km} km | {cum_gain}m+ / {cum_loss}m-",
+            "Logistik Segmen": f"💧 {air_ml}ml (~{botol_500} btl) | ⚡ {asupan_str}"
         })
 
     return pd.DataFrame(ws_rows), total_air_all, total_kal_all
