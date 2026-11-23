@@ -5,5 +5,4 @@ pandas
 numpy
 folium
 plotly
-requests
 scipy

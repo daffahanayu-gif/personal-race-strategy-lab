@@ -1,9 +1,6 @@
 import gpxpy
 import pandas as pd
 import numpy as np
-import requests 
-import time
-from scipy.interpolate import griddata
 from datetime import datetime, timedelta
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -75,7 +72,6 @@ def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, ws_input_s
     start_dt = datetime.strptime(jam_start_str, "%H:%M")
     df['est_time'] = df['cum_seconds'].apply(lambda s: (start_dt + timedelta(seconds=float(s))).strftime("%H:%M"))
 
-    # Penentuan Pos/WS Otomatis vs Manual (Bersih dengan tipe float standar)
     if ws_input_str.strip() == "" or ws_input_str.strip().upper() == "AUTO":
         if total_km < 12: num_ws = 1
         elif total_km < 22: num_ws = 2
@@ -98,37 +94,3 @@ def run_strategy_simulation(df_raw, jam_start_str, target_durasi_jam, ws_input_s
         ws_mode = f"WS Manual: {ws_label_str}"
 
     return df, ws_list, ws_mode
-
-def fetch_terrain_surface(df, grid_size=28):
-    """Mengambil DEM dari Open-Meteo (anti rate-limit) dengan fallback interpolasi GPX lokal agar selalu muncul."""
-    pad_lat = (df['lat'].max() - df['lat'].min()) * 0.22 + 0.003
-    pad_lon = (df['lon'].max() - df['lon'].min()) * 0.22 + 0.003
-
-    lats = np.linspace(df['lat'].min() - pad_lat, df['lat'].max() + pad_lat, grid_size)
-    lons = np.linspace(df['lon'].min() - pad_lon, df['lon'].max() + pad_lon, grid_size)
-    lon_grid, lat_grid = np.meshgrid(lons, lats)
-
-    flat_lats = lat_grid.ravel()
-    flat_lons = lon_grid.ravel()
-
-    try:
-        elevs = []
-        chunk_size = 100
-        for i in range(0, len(flat_lats), chunk_size):
-            lat_str = ",".join([f"{x:.5f}" for x in flat_lats[i:i+chunk_size]])
-            lon_str = ",".join([f"{x:.5f}" for x in flat_lons[i:i+chunk_size]])
-            url = f"https://api.open-meteo.com/v1/elevation?latitude={lat_str}&longitude={lon_str}"
-            resp = requests.get(url, timeout=10)
-            resp.raise_for_status()
-            elevs.extend(resp.json()["elevation"])
-            time.sleep(0.15)  # Jeda aman agar tidak kena rate-limit Open-Meteo
-        z_grid = np.array(elevs, dtype=float).reshape(lat_grid.shape)
-        return lon_grid, lat_grid, z_grid
-    except Exception:
-        # Fallback lokal: bentuk permukaan gunung dari interpolasi titik GPX jika API sedang sibuk
-        pts = df[['lon', 'lat']].values
-        vals = df['ele_smooth'].values
-        z_linear = griddata(pts, vals, (lon_grid, lat_grid), method='linear')
-        z_nearest = griddata(pts, vals, (lon_grid, lat_grid), method='nearest')
-        z_grid = np.where(np.isnan(z_linear), z_nearest - 45, z_linear)
-        return lon_grid, lat_grid, z_grid
