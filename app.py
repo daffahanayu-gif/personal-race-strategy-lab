@@ -31,7 +31,6 @@ st.markdown("""
 st.title("🏔️ Personal Race Strategy Lab")
 st.caption("Analisis rute GPX, pemodelan kontur medan 3D, simulasi pacing berbasis gradien, evaluasi COP/COT, dan manajemen logistik.")
 
-# Inisialisasi daftar logistik kustom di session_state
 if "custom_logistics_catalog" not in st.session_state:
     st.session_state.custom_logistics_catalog = {
         "Energy Gel (100 kkal)": 100,
@@ -58,14 +57,14 @@ with st.sidebar:
         "4. Strategi Pacing",
         ["Normal (Stabil)", "Konservatif (Simpan Tenaga di Awal)", "Agresif (Cepat di Awal)"]
     )
-    waktu_berhenti_ws = st.number_input(
-        "5. Estimasi Berhenti per WS (Menit)",
-        min_value=0, max_value=60, value=3, step=1
+    jumlah_cop = st.number_input(
+        "5. Jumlah Pos / COP",
+        min_value=0, max_value=10, value=2, step=1,
+        help="Tentukan berapa banyak titik Pos / COP di sepanjang rute (0 = tanpa pos)."
     )
-    cot_input = st.text_input(
-        "6. Cut-Off Time / COT Finis (HH:MM)",
-        value="",
-        placeholder="Opsional (misal: 12:00)"
+    waktu_berhenti_ws = st.number_input(
+        "6. Estimasi Berhenti per Pos (Menit)",
+        min_value=0, max_value=60, value=3, step=1
     )
 
 # --- TAMPILAN AWAL ---
@@ -79,7 +78,7 @@ if uploaded_file is None:
     st.caption(
         "💡 **Navigasi Parameter:** Gunakan panel **Pengaturan Rute & Target** di sisi kiri layar "
         "(atau ketuk ikon menu **`>>`** di pojok kiri atas pada layar seluler) untuk menyesuaikan "
-        "waktu mulai, target durasi, strategi *pacing*, lama pit-stop WS, serta batas waktu COT."
+        "waktu mulai, target durasi, strategi *pacing*, serta jumlah pos COP."
     )
     if uploaded_main is not None:
         uploaded_file = uploaded_main
@@ -92,7 +91,9 @@ def load_cached_gpx(file_bytes):
     return parse_gpx_data(file_bytes)
 
 df_raw = load_cached_gpx(uploaded_file.getvalue())
-df, ws_list, ws_mode = run_strategy_simulation(df_raw, jam_start, target_durasi, waktu_berhenti_ws, mode_strategi)
+df, ws_list, ws_mode = run_strategy_simulation(
+    df_raw, jam_start, target_durasi, waktu_berhenti_ws, mode_strategi, jumlah_cop
+)
 
 total_km = float(df['distance_km'].max())
 total_gain = float(df['ele_gain'].sum())
@@ -118,14 +119,13 @@ color_dict = {
 tab_3d, tab_2d, tab_ws, tab_km = st.tabs([
     "⛰️ Model Medan 3D",
     "🗺️ Peta Topografi 2D",
-    "💧 Jadwal Pos & Logistik",
+    "💧 Jadwal Pos, COP & Logistik",
     "📊 Strategi Per 1 KM"
 ])
 
 with tab_3d:
     st.subheader("Visualisasi Maket Gunung & Lintasan 3D")
-    st.caption("📱 **Kontrol HP:** Geser **1 jari** untuk memutar maket, **ketuk titik** untuk detail elevasi, dan gunakan **penggeser Zoom** di bawah untuk memperbesar kontur tanpa memperbesar layar browser.")
-    
+    st.caption("📱 **Kontrol Layar:** Geser **1 jari** untuk memutar maket, **ketuk titik** untuk detail elevasi, dan gunakan **penggeser Zoom** di bawah untuk memperbesar kontur.")
     zoom_3d = st.slider("🔍 Tingkat Zoom Maket 3D", min_value=0.7, max_value=2.5, value=1.0, step=0.1)
     fig3d = build_3d_terrain_figure(df, ws_list, jam_start, est_finish, color_dict, zoom_level=zoom_3d)
     st.plotly_chart(
@@ -140,38 +140,51 @@ with tab_2d:
     st_folium(topo_map, use_container_width=True, height=540, returned_objects=[])
 
 with tab_ws:
-    st.subheader("Jadwal Pos, Evaluasi COP/COT & Perencanaan Logistik")
-    
-    # Panel Kustomisasi COP per Pos & Logistik Pengguna
-    with st.expander("🛠️ Atur Cut-Off Point (COP) Pos & Pilih Logistik Anda", expanded=True):
-        col_cop, col_log = st.columns([1, 1.3])
-        
+    st.subheader("Jadwal Pos, Batas Waktu COP & Rencana Logistik")
+    st.caption("Isi batas waktu COP menggunakan **durasi jam** (misal: `5` atau `5.5`) maupun **jam dinding** (misal: `11:30`), lalu pilih jenis logistik Anda.")
+
+    with st.expander("🛠️ Pengaturan Waktu COP & Jenis Logistik", expanded=True):
+        col_cop, col_log = st.columns([1.2, 1])
+
         with col_cop:
-            st.markdown("**1. Batas Waktu per Pos / COP (Opsional)**")
-            cop_dict = {}
+            st.markdown("**1. Batas Waktu COP per Pos & Finish**")
+            cop_config = {}
             if ws_list:
                 for idx_ws, km_w in enumerate(ws_list, start=1):
-                    cop_dict[idx_ws] = st.text_input(
-                        f"COP WS {idx_ws} (KM {km_w})",
-                        value="",
-                        placeholder="Format HH:MM (misal: 08:30)",
-                        key=f"cop_ws_{idx_ws}"
+                    r1, r2, r3 = st.columns([1.3, 1, 0.8])
+                    nm = r1.text_input(
+                        f"Nama COP {idx_ws}",
+                        placeholder=f"COP {idx_ws} (KM {km_w})",
+                        key=f"nm_{idx_ws}",
+                        label_visibility="collapsed"
                     )
+                    cp_time = r2.text_input(
+                        f"Waktu COP {idx_ws}",
+                        placeholder=f"COP {idx_ws}: 5 jam / 11:00",
+                        key=f"cop_t_{idx_ws}",
+                        label_visibility="collapsed"
+                    )
+                    dbag = r3.checkbox("Drop Bag", key=f"db_{idx_ws}")
+                    cop_config[idx_ws] = {"nama": nm, "cop": cp_time, "drop_bag": dbag}
             else:
-                st.caption("Rute pendek (tidak ada pos antara).")
+                st.caption("Jumlah COP diatur ke 0 (rute langsung Start ke Finish).")
+
+            cot_finish = st.text_input(
+                "Batas Waktu Finish / COT (Opsional)",
+                placeholder="Misal: 16 (untuk 16 jam) atau 22:00",
+                key="cot_finish_input"
+            )
 
         with col_log:
-            st.markdown("**2. Pilih Jenis Logistik yang Dibawa**")
+            st.markdown("**2. Pilih Jenis Logistik yang Digunakan**")
             pilihan_nama = st.multiselect(
-                "Pilih dari daftar logistik:",
+                "Pilih logistik untuk dibagi per segmen COP:",
                 options=list(st.session_state.custom_logistics_catalog.keys()),
                 default=["Energy Gel (100 kkal)", "Pisang (95 kkal)"]
             )
-            
-            # Tambah item logistik baru ke katalog sistem
             c_new1, c_new2, c_new3 = st.columns([2, 1.2, 1])
-            new_item_name = c_new1.text_input("Tambah item baru", placeholder="Misal: Dodol / Gel Caff", label_visibility="collapsed")
-            new_item_kcal = c_new2.number_input("Kalori (kkal)", min_value=10, max_value=1000, value=110, step=10, label_visibility="collapsed")
+            new_item_name = c_new1.text_input("Tambah item", placeholder="Item baru (misal: Dodol)", label_visibility="collapsed")
+            new_item_kcal = c_new2.number_input("Kalori", min_value=10, max_value=1000, value=110, step=10, label_visibility="collapsed")
             if c_new3.button("➕ Tambah", use_container_width=True):
                 if new_item_name.strip():
                     label_baru = f"{new_item_name.strip()} ({new_item_kcal} kkal)"
@@ -179,14 +192,14 @@ with tab_ws:
                     st.rerun()
 
     selected_items_dict = {k: st.session_state.custom_logistics_catalog[k] for k in pilihan_nama}
-
     df_ws, total_air, total_kal = generate_ws_logistics(
-        df, ws_list, waktu_berhenti_ws, jam_start, cop_dict, cot_input, selected_items_dict
+        df, ws_list, waktu_berhenti_ws, jam_start, cop_config, cot_finish, selected_items_dict
     )
+
     st.dataframe(df_ws, use_container_width=True, hide_index=True)
     st.success(
         f"🎒 **Ringkasan Logistik (Target {target_durasi_str}):** Total kebutuhan cairan sekitar **{total_air} ml** "
-        f"dan total kebutuhan energi sekitar **{total_kal} kkal** yang dibagi proporsional ke item pilihan Anda."
+        f"dan total kebutuhan energi sekitar **{total_kal} kkal** yang didistribusikan sesuai segmen pos di atas."
     )
 
 with tab_km:
